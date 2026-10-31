@@ -15,11 +15,15 @@ final class PanelController {
     private let container: ModelContainer
     private var panel: FloatingPanel?
     private var clickMonitor: Any?
-    private weak var previousApp: NSRunningApplication?
+    /// Where Esc returns the user.
+    private var previousApp: NSRunningApplication?
     /// The most recent app other than this one to become active — where Esc
     /// should return the user when this app itself is frontmost at show time
-    /// (Spotlight, Raycast or Finder reopening it activates it).
-    private weak var lastOtherApp: NSRunningApplication?
+    /// (Spotlight, Raycast or Finder reopening it activates it). Held
+    /// strongly, as is previousApp: the NSRunningApplication an activation
+    /// notification carries is a copy nothing else keeps, so a weak
+    /// reference was nil within seconds and Esc had nowhere to return to.
+    private var lastOtherApp: NSRunningApplication?
     /// True from "make the panel key" until it actually becomes key. AppKit
     /// may grant key a beat later, or not at all while an app-modal session
     /// (an open/save panel) runs — toggle() must not mistake that for a panel
@@ -103,7 +107,7 @@ final class PanelController {
         panel.orderOut(nil)
         // Not while an open/save panel is up: activating the previous app
         // would bury it.
-        if restoringFocus && NSApp.modalWindow == nil { previousApp?.activate() }
+        if restoringFocus && NSApp.modalWindow == nil, let previousApp { handFocus(to: previousApp) }
         // After orderOut, so the panel vanishes without waiting on disk I/O.
         container.mainContext.saveLoggingErrors("hiding the panel")
     }
@@ -136,6 +140,17 @@ final class PanelController {
             $0 !== panel && $0.isVisible && $0.styleMask.contains(.titled)
         }
         return ownWindowShown ? front : lastOtherApp
+    }
+
+    /// Activating another app is a request macOS may decline (since macOS
+    /// 14); yielding first makes the hand-off certain while this app is the
+    /// active one, as after a reopen. Otherwise that app is still active and
+    /// nothing changes. With Settings up, this app stays active and Settings
+    /// gets the keyboard back on its own.
+    private func handFocus(to app: NSRunningApplication) {
+        guard !Self.isSelf(app) else { return }
+        NSApp.yieldActivation(to: app)
+        app.activate(from: .current, options: [])
     }
 
     private static func isSelf(_ app: NSRunningApplication) -> Bool {
