@@ -205,7 +205,9 @@ scrolling with the caret off screen; clicking a heading brings it to the
 top; ⌃⌘O and the pane's button hide it; a narrow panel drops it. Relaunch: the panel opens (a user launch is a
 request to see the notes) but the strip is gone. Press **Esc**, then open
 "Popup Notes" from Spotlight or Raycast *while it is still running* — the
-panel must come back; that reopen path once did nothing at all. With
+panel must come back; that reopen path once did nothing at all. Esc there
+must put you back in the app you were in (it once left Popup Notes in
+front with no window, so keystrokes went nowhere). With
 launch-at-login enabled, log out and back in: the app must come up in the
 menu bar **silently**, no panel (this is the one path `open -a` cannot
 exercise — it needs a real login). Open
@@ -240,7 +242,11 @@ on, turn Show in Menu Bar on again, and the icon returns.
 - **Panel focus handoff** is the trickiest detail: the panel is *non-activating*
   yet must become key to receive typing, then return focus to the prior app on
   dismiss. Verify the exact `NSApp.activate` / first-responder sequence against
-  current docs and test on hardware.
+  current docs and test on hardware. Two traps in handing focus back: the
+  `NSRunningApplication` an activation notification carries is a copy
+  nothing else keeps (a weak reference to it is nil within seconds), and
+  since macOS 14 activating another app is a request the system may
+  decline unless the active app yields first (`NSApp.yieldActivation(to:)`).
 - **Accessory app:** `LSUIElement = true` means no Dock icon — the menu-bar
   item is the only always-visible affordance. It can be hidden, so the
   panel's ⋯ menu also carries Settings and Quit, and reopening the app
