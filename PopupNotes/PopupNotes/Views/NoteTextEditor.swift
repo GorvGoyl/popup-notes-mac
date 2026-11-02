@@ -93,10 +93,12 @@ struct NoteTextEditor: NSViewRepresentable {
         // the text view differs from it: text still being composed (macOS's
         // inline prediction, an input method's) shows in the text view but
         // isn't the note's yet, and replacing it threw the caret to the end
-        // mid-sentence. That replacement isn't undoable, and the earlier
-        // undo entries now point at ranges that may not exist (⌘Z would
-        // throw), so drop them.
-        if text != context.coordinator.syncedText {
+        // mid-sentence. Nor while the editor writes the note itself: SwiftUI
+        // can run this from inside that write, the note still holding its
+        // old text. That replacement isn't undoable, and the earlier undo
+        // entries now point at ranges that may not exist (⌘Z would throw),
+        // so drop them.
+        if !context.coordinator.isWritingText, text != context.coordinator.syncedText {
             context.coordinator.syncedText = text
             textView.setText(text, caret: textView.selectedRange().location)
             context.coordinator.undoManager.removeAllActions()
@@ -125,6 +127,12 @@ struct NoteTextEditor: NSViewRepresentable {
         /// or last wrote to it. The note only changed from outside when it
         /// differs from this.
         var syncedText: String
+        /// Set while the editor writes its text to the note. Once the title
+        /// field (its `selection` binding) has had focus, SwiftUI updates
+        /// the views from inside that write, before the note holds the new
+        /// text — and taking that old text back reset the editor at every
+        /// keystroke, the caret left behind: "# Heading" came out " Heading#".
+        private(set) var isWritingText = false
         /// This editor's own undo history. Without it every editor shares the
         /// panel window's undo manager, so ⌘Z could reach into the history of
         /// notes viewed earlier.
@@ -163,7 +171,9 @@ struct NoteTextEditor: NSViewRepresentable {
             guard let textView = notification.object as? MarkdownTextView else { return }
             let committed = textView.committedText
             syncedText = committed
+            isWritingText = true
             text.wrappedValue = committed
+            isWritingText = false
             if !textView.isFolding { onEdit() }
         }
 
