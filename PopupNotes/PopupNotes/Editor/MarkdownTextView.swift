@@ -66,6 +66,24 @@ final class MarkdownTextView: NSTextView {
 
     private var theme: MarkdownTheme { styler.theme }
 
+    // MARK: - Caret
+
+    /// Right after an edit in a long note, TextKit 2 can come out of laying
+    /// out the viewport with an empty viewport range — set off by paragraph
+    /// spacing, which every line here has. NSTextView then takes the caret
+    /// for off screen and hides it, and again after each keystroke: Return
+    /// after a heading mid-note left no caret at all. A second pass finds
+    /// the viewport, and the caret shows again.
+    override func layout() {
+        super.layout()
+        guard let viewport = textLayoutManager?.textViewportLayoutController,
+              viewport.viewportRange?.isEmpty ?? true,
+              (textStorage?.length ?? 0) > 0, !visibleRect.isEmpty else { return }
+        viewport.layoutViewport()
+        guard viewport.viewportRange?.isEmpty == false else { return }
+        updateInsertionPointStateAndRestartTimer(true)
+    }
+
     // MARK: - Keys
 
     override func insertNewline(_ sender: Any?) {
