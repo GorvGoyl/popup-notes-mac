@@ -104,7 +104,7 @@ Original architecture & scope rationale:
 | `HotKeyStatus` · `HotKeyStore` | In-memory `@Observable` live hotkey state (combo + registered), observed by the menu bar, strip and Settings; `HotKeyStore` persists the combo in `UserDefaults`. |
 | `PanelController` | Owns panel lifecycle: build (or prewarm offscreen), host `NotesView` (injecting the container), frame-remember + follow the mouse's display, show/hide/`activate`/toggle (re-keys an unfocused panel), editor focus on show, hides on a click outside or when another app comes to the front (⌘Tab, the Dock, a launcher), Esc/⌘W, ⌘H recovery, gets out of the way of Settings. |
 | `FloatingPanel` | `NSPanel` subclass: non-activating, floating, **resizable** (frame remembered), becomes key for typing, all-Spaces + full-screen-aux; handles ⌘W and ⌃⌘O (outline) itself; a drag on the note's title, which sits in its title-bar strip, moves it (a click still edits the title). |
-| `NotesView` · `NotesListView` · `NoteDetailView` · `NoteTextEditor` | SwiftUI master-detail: `@Query` sidebar (title — or, untitled, the first line — then `date · preview`; ⌘N stays in an open blank note; delete via context menu or ⌫ in the list — confirmed unless blank — then the neighbor is selected; blank notes are discarded once you leave them) + the selected note's title field (a vertical `TextField`, one line kept: Return/↓/Tab go into the text; a blank note opens in it) above its `NSTextView`-backed editor (own undo history per note; takes the note's text again only when it changed from outside, never for text still being composed; opening or closing a toggle isn't an edit, so it doesn't bump `modified`; ↑ on its first line or ⌫ at its start goes back up to the title's end) and, beside them, its outline. |
+| `NotesView` · `NotesListView` · `NoteDetailView` · `NoteTextEditor` | SwiftUI master-detail: `@Query` sidebar (title — or, untitled, the first line — then `date · preview`; ⌘N stays in an open blank note; delete via context menu or ⌫ in the list — confirmed unless blank — then the neighbor is selected; blank notes are discarded once you leave them) + the selected note's title field (a vertical `TextField`, one line kept: Return/↓/Tab go into the text; a blank note opens in it) above its `NSTextView`-backed editor (own undo history per note; takes the note's text again only when it changed from outside — never for text still being composed, nor from inside its own write; opening or closing a toggle isn't an edit, so it doesn't bump `modified`; ↑ on its first line or ⌫ at its start goes back up to the title's end) and, beside them, its outline. |
 | `MarkdownTextView` · `MarkdownStyler` · `MarkdownTheme` | The editor (`Editor/`): a TextKit 2 `NSTextView` whose text stays plain Markdown. The styler (text-storage delegate, `didProcessEditing` — never `willProcessEditing`, which misplaces the caret) restyles only the lines an edit changed; the view draws code-block/quote/rule backgrounds, continues lists on Return, nests with Tab/Shift-Tab, toggles ⌘B/⌘I (each its own undo step), checks task boxes on click, and scrolls to a heading. Selection: background only; an empty viewport is laid out again so the caret stays (see gotchas). Toggles: `>` + space makes one; a click on its arrow, ⌘↩ or ⌥⌘T opens/closes (`setFolds`: no undo step, not an edit); the styler marks folded lines and, as the text content storage's delegate, keeps TextKit from laying them out; the caret steps over folds on navigation and opens them after edits. Never touch its `layoutManager` (falls back to TextKit 1). |
 | `NoteOutline` · `NoteOutlineView` | The sticky outline: `@Observable` headings + current section (caret's, or the top line's when the caret is off screen), kept current by the editor's coordinator; the pane lists them, highlights the current one, jumps on click. Shown with ≥ 2 headings while "Show Outline" (⋯ menu, ⌃⌘O, `showsOutline` default) is on and the detail is ≥ 420 pt wide. |
 | `OnboardingStripView` · `OnboardingDefaults` | Self-retiring bottom strip: hotkey hint (until first hotkey use or dismissal; failure variant when registration fails) + launch-at-login Enable/Not Now consent; one-time `UserDefaults` flags. |
@@ -179,7 +179,8 @@ row). Press **⌃⌘N**: the panel toggles and the hint row is gone for good.
 Click **Enable**: the app appears in System Settings ▸ General ▸ Login
 Items and the consent row disappears. Create a note (**⌘N**): the caret is
 in its title field; type a title (the sidebar shows it), Return (the caret
-goes to the text), type, ↑ (back to the title's end), ↓; a note left
+goes to the text), type — it comes out as typed, the caret after it —, ↑
+(back to the title's end), ↓; a note left
 untitled is named by its text's first line. With the caret in the text,
 drag the title: the panel moves; click it: the caret lands where you
 clicked. With inline predictive text on (System Settings ▸ Keyboard ▸
@@ -298,6 +299,15 @@ on, turn Show in Menu Bar on again, and the icon returns.
   `textView.string` differs, which reset the text and threw the caret to
   the end when a key went in beside a prediction (2026-10-31) — and writes
   only committed text (`MarkdownTextView.committedText`).
+- **SwiftUI can update the editor from inside its own write.** Once the
+  title field — a `TextField` with a `selection` binding — has had focus,
+  writing the note's text through the editor's binding makes SwiftUI run
+  `updateNSView` within the model's willSet, the note still holding its
+  old text (seen 2026-11-02 on screen; a direct `note.text =` doesn't, nor
+  does a field without `selection`). Taken for a change from outside, that
+  reset the editor at every keystroke after a new note's title: "# Heading"
+  came out " Heading#". `NoteTextEditor` ignores the note's text while
+  `isWritingText`.
 - **The title is in the title bar.** It fills the strip AppKit drags the
   window by, so `FloatingPanel.sendEvent` drags the panel (`performDrag`)
   when a drag starts on the title while it isn't being edited, and passes
