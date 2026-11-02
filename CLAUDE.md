@@ -105,7 +105,7 @@ Original architecture & scope rationale:
 | `PanelController` | Owns panel lifecycle: build (or prewarm offscreen), host `NotesView` (injecting the container), frame-remember + follow the mouse's display, show/hide/`activate`/toggle (re-keys an unfocused panel), editor focus on show, hides on a click outside or when another app comes to the front (⌘Tab, the Dock, a launcher), Esc/⌘W, ⌘H recovery, gets out of the way of Settings. |
 | `FloatingPanel` | `NSPanel` subclass: non-activating, floating, **resizable** (frame remembered), becomes key for typing, all-Spaces + full-screen-aux; handles ⌘W and ⌃⌘O (outline) itself; a drag on the note's title, which sits in its title-bar strip, moves it (a click still edits the title). |
 | `NotesView` · `NotesListView` · `NoteDetailView` · `NoteTextEditor` | SwiftUI master-detail: `@Query` sidebar (title — or, untitled, the first line — then `date · preview`; ⌘N stays in an open blank note; delete via context menu or ⌫ in the list — confirmed unless blank — then the neighbor is selected; blank notes are discarded once you leave them) + the selected note's title field (a vertical `TextField`, one line kept: Return/↓/Tab go into the text; a blank note opens in it) above its `NSTextView`-backed editor (own undo history per note; takes the note's text again only when it changed from outside, never for text still being composed; opening or closing a toggle isn't an edit, so it doesn't bump `modified`; ↑ on its first line or ⌫ at its start goes back up to the title's end) and, beside them, its outline. |
-| `MarkdownTextView` · `MarkdownStyler` · `MarkdownTheme` | The editor (`Editor/`): a TextKit 2 `NSTextView` whose text stays plain Markdown. The styler (text-storage delegate, `didProcessEditing` — never `willProcessEditing`, which misplaces the caret) restyles only the lines an edit changed; the view draws code-block/quote/rule backgrounds, continues lists on Return, nests with Tab/Shift-Tab, toggles ⌘B/⌘I (each its own undo step), checks task boxes on click, and scrolls to a heading. Selection: background only (see gotchas). Toggles: `>` + space makes one; a click on its arrow, ⌘↩ or ⌥⌘T opens/closes (`setFolds`: no undo step, not an edit); the styler marks folded lines and, as the text content storage's delegate, keeps TextKit from laying them out; the caret steps over folds on navigation and opens them after edits. Never touch its `layoutManager` (falls back to TextKit 1). |
+| `MarkdownTextView` · `MarkdownStyler` · `MarkdownTheme` | The editor (`Editor/`): a TextKit 2 `NSTextView` whose text stays plain Markdown. The styler (text-storage delegate, `didProcessEditing` — never `willProcessEditing`, which misplaces the caret) restyles only the lines an edit changed; the view draws code-block/quote/rule backgrounds, continues lists on Return, nests with Tab/Shift-Tab, toggles ⌘B/⌘I (each its own undo step), checks task boxes on click, and scrolls to a heading. Selection: background only; an empty viewport is laid out again so the caret stays (see gotchas). Toggles: `>` + space makes one; a click on its arrow, ⌘↩ or ⌥⌘T opens/closes (`setFolds`: no undo step, not an edit); the styler marks folded lines and, as the text content storage's delegate, keeps TextKit from laying them out; the caret steps over folds on navigation and opens them after edits. Never touch its `layoutManager` (falls back to TextKit 1). |
 | `NoteOutline` · `NoteOutlineView` | The sticky outline: `@Observable` headings + current section (caret's, or the top line's when the caret is off screen), kept current by the editor's coordinator; the pane lists them, highlights the current one, jumps on click. Shown with ≥ 2 headings while "Show Outline" (⋯ menu, ⌃⌘O, `showsOutline` default) is on and the detail is ≥ 420 pt wide. |
 | `OnboardingStripView` · `OnboardingDefaults` | Self-retiring bottom strip: hotkey hint (until first hotkey use or dismissal; failure variant when registration fails) + launch-at-login Enable/Not Now consent; one-time `UserDefaults` flags. |
 | `SettingsView` · `HotKeyRecorderView` · `SettingsButton` | `Settings` scene, two tabs — General: launch-at-login toggle (shows the real `SMAppService` status, "Open Login Items…" when approval is needed), "Show in Menu Bar" toggle (how to reach the panel without the icon; on macOS 26 always "Open Menu Bar Settings…", since the system's own switch can hide it unreported), global-shortcut recorder (any combo with ⌘, ⌃ or ⌥, or an F-key; persisted by `HotKeyStore`), JSON export/import; About: local-only/no-analytics statement, GitHub + jetwriter.ai links. `SettingsButton` is the one "Settings…" path (panel ⋯ menu, strip, menu bar, ⌘,): it hides the floating panel and activates the app first. |
@@ -198,7 +198,9 @@ a title, Return (the new line is inside), some text, Return twice (out).
 Click the arrow: the lines fold away, the note does NOT jump to the top of
 the sidebar, and ⌘Z doesn't undo the fold; → at the title's end skips to
 the line below; ⌘↩ opens it again, ⌥⌘T opens/closes all; type inside,
-close it, ⌘Z: it opens to show the undo.
+close it, ⌘Z: it opens to show the undo. In a note long enough to scroll,
+put the caret at the end of a heading in its middle and press Return: the
+caret blinks on the new line, and stays while you type.
 Outline: the Welcome note shows it; a new note gets it at its second
 heading; the highlight follows the caret, and the top of the note while
 scrolling with the caret off screen; clicking a heading brings it to the
@@ -279,6 +281,16 @@ on, turn Show in Menu Bar on again, and the icon returns.
   `make()`). And the fold delegate is asked about every paragraph TextKit
   walks past, many times a frame: never read `paragraph.attributedString`
   there (a fresh copy each call) — it reads the text storage.
+- **TextKit 2 can hide the caret** (macOS 26.7.1). Right after an edit
+  in a long note — Return after a heading in its middle — laying out the
+  viewport can come out with an empty viewport range: paragraph spacing
+  sets it off, in a plain `NSTextView` too. NSTextView then takes the
+  caret for off screen and hides it (`_updateBlinkRectUsingTextLayoutManager:`
+  in its `layout`), and in our editor it stayed hidden while typing on.
+  `MarkdownTextView.layout()` lays out an empty viewport once more and
+  refreshes the caret (2026-11-02). To check a caret offscreen, the window
+  must be on screen (alpha 0 does): the hide happens in layout passes that
+  a never-shown window doesn't get.
 - **Text being composed isn't the note's yet.** macOS's inline predictions
   (on by default) and input methods put marked text into the text storage
   without a `textDidChange`. So `NoteTextEditor` replaces the editor's text
